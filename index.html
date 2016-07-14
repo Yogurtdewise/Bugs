@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html>
+	<head>
+
+	<meta charset="utf-8" />
+	<title>Tap Test</title>
+
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<script src="cordova.js"></script>
+
+	<link rel="stylesheet" href="css/jquery.mobile-1.4.4.min.css"/>
+	<script src="js/jquery-1.11.1.min.js"></script>
+	<script src="js/jquery.mobile-1.4.4.min.js"></script>
+
+	<script type="text/javascript">
+	/************************************************************************************************************************************
+	* Program Name   : Bugs                                                                                                             *
+	* Version        : 1.0                                                                                                              *
+	* Release Date   : November 28, 2014                                                                                                *
+	* Platform       : Android PhoneGap App                                                                                             *
+	* Uses           : Academic Project for Framingham State University - CSCI303, Fall 2014                                            *
+	* Author:        : Kenneth Chin                                                                                                     *
+	*                                                                                                                                   *
+	* Platform Notes : This program is a PhoneGap App primarily for use on Android devices. There are four PhoneGap method calls,       *
+	*                    which make this code unsuitable for direct browser support. These calls are as follows:                        *
+	*                                                                                                                                   *
+	*                         src="cordova.js"  					//Enables PhoneGap compatability.                                   *
+	*                         navigator.app.exitApp()               //Exits the PhoneGap App.                                           *
+	*                         navigator.vibrate(150)                //Vibrates the mobile device.                                       *
+	*                                                                                                                                   *
+	*                    Removal of these statements will not affect the program's execution, and will allow the code to run on a       *
+	*                    browser that supports mobile emulation. The method calls are there primarily for demonstration of PhoneGap     *
+	*                    plug-ins.                                                                                                      *
+    *                                                                                                                                   *
+    *                    The method calls in "initSounds()" MUST be changed as follows, to work on mobile emulation:                    *
+	*                                                                                                                                   *
+	*						  ALL references to:                                                                                        *
+	*								[MEDIA_OBJECT] = new Media("/android_asset/www/[FILE_LOCATION]");                                   *
+	*                                                                                                                                   *
+	*						  MUST BE CHANGED TO:                                                                                       *
+	*						        [AUDIO_OBJECT] = new Audio();                                                                       *
+	*								[AUDIO_OBJECT].src = "[FILE_LOCATION]";                                                             *
+	*                                                                                                                                   *
+	*                    For convenience, the appropriate changes have been left commented out.                                         * 
+	*                                                                                                                                   *
+	* Description    : Bugs is a mobile game who's objective is to "squash" bugs that move towards the bottom of the screen. A user     *
+	*                    can "squash" a bug by tapping a bug before it touches the screen's footer (identifiable as the "Menu" button). *
+	*                    Squashing a bug accumulates points for the user, which is displayed on the screen's header. At any time the    *
+	*                    user can press the "Menu" button, which allows the user to select "Reset", "Quit", or "Resume".                *
+	*                    See the NOTE below for specific implementation issues.                                                         *
+	*                                                                                                                                   *
+	*************************************************************************************************************************************/
+	
+	
+	/************************************************************************************************************************************
+	* NOTE: There are issues using "while" loops. They seem to run too fast to correctly process the code. As a work-around setInterval *
+	*  and setTimeout functions are used as a replacement for while loops.                                                              *
+	*                                                                                                                                   *
+	*  The above while-loop issue makes pausing the game difficult. It is easy to stop the game, however resetting all the intervals    *
+	*  has proven to be an inconsistent process. Index counters continue to count before execution of the interval, causing errors.     *
+	*  Demonstrations of these errors are available upon request. While it makes sense to pause the game when the menu is opened, this  *
+	*  functionality has been omitted until a better solution can be found.                                                             *
+	*                                                                                                                                   *
+	*  There is also an issue assigning Image() objects to variable objects. This issue does not (seem) to affect performance, but it   *
+	*  certainly makes the code messier and less flexible. As a work-around image arrays are used in tandem with the objects that use   *
+	*  the image.                                                                                                                       *
+	*                                                                                                                                   *
+	*  Also, it has been noted that with a "bugDelay" of 1500, the Android .apk file is less stable. Some bugs are not properly drawn   *
+	*  over when hit, or reaching the bottom of the canvas. A "render" function has been created to repeatedly re-draw all images.      *
+	*  This solution seems to solve the problem. However, at varied speeds the images have a varying level of "flashing" as the canvas  *
+	*  is erased and redrawn.                                                                                                           *
+	*                                                                                                                                   *
+	*  Further, it is noted that the audio files require PhoneGap's Media() object on the Android .apk. This means testing requires two *
+	*  versions; one for HTML5 mobile emulation and one for the PhoneGap .apk.                                                          *
+	*                                                                                                                                   *
+	*  Lastly, the splash screen does appear on the Android .apk, however it shows only for a brief period (flashes). A splash delay    *
+	*  played while the splash screen is active. As another work-around, a javascript splash screen has been implemented.               *
+	*                                                                                                                                   *
+	*************************************************************************************************************************************/
+	
+	
+	/**********************************************************
+	* Global variables and objects used to define the canvas. *
+	***********************************************************/
+	
+		var xTap; //The x-Coordinate, relative to the viewport, of a tap event.
+		var yTap; //The y-Coordinate, relative to the viewport, of a tap event.
+		
+		//The viewport dimensions.
+		var viewport = {
+			width  : $(window).width(),
+			height : $(window).height()
+		};
+		var headHeight; //The header height.
+		var footHeight; //The footer height.
+		
+		var canvasHeight; //The canvas height, minus header and footer.
+		
+		var imgSize = 30; //Bug images currently 30x30.
+		var spawnArea = viewport.width - imgSize; //The range of x coordinates that bugs can spawn from.
+		
+		var tapError = 5; //The allowed error (increase to box size) to taps on bug boxes (in pixels).
+		
+		var canvas; //The canvas DOM element.
+		var ctx;    //The canvas 2d context.
+		
+	/****************************************************************
+	* Global variables and objects used to define the splash screen *
+	*****************************************************************/
+	
+		var firstRun    = true;  //A boolean indicating if the splash screen should appear. Only occurs on app start, not on app reset.
+	
+		var splashScreen;       //The splash screen image.
+		var canvasAlpha = 1.0;  //The current alpha level of the canvas.
+		var fadeSpeed   = 0.1;  //The rate at which the alpha will change when fading out.
+		var fadeDelay   = 2000; //The time in milliseconds before the splash screen begins to fade.
+		var fadeIntervalDelay = 250; //The time in milliseconds between each fade interval.
+		var fadeInterval;
+		//The total (theoretical) time that the splash screen will run.
+		var totalSplashTime = (fadeIntervalDelay / fadeSpeed) + fadeDelay;
+		
+		var splashSound; //An Audio() object used to store the splash screen mp3.
+		
+		//NOTE: These default values are in hexadecimal. Any value other than these defaults will be in decimal,
+		// as a side-effect of arithmetic functions.
+		var splashBGRed   = 0x73; //The hexadecimal value for the red hue of the canvas background.
+		var splashBGBlue  = 0x80; //The hexadecimal value for the blue hue of the canvas background.
+		var splashBGGreen = 0x79; //The hexadecimal value for the green hue of the canvas background.
+		
+		var redStep   = Math.floor(splashBGRed * fadeSpeed); //A decimal value. The change in red hue to fade the canvas' background.
+		var blueStep  = Math.floor(splashBGRed * fadeSpeed); //A decimal value. The change in blue hue to fade the canvas' background.
+		var greenStep = Math.floor(splashBGRed * fadeSpeed); //A decimal value. The change in green hue to fade the canvas' background.
+		
+		//Begin the splash screen event.
+		//NOTE: This variable must be defined BEFORE the splash screen image is loaded. This is due to the large load-time
+		// of the splashScreen image, and the functionality of the "Image.onload = callback" function (requires a functionID).
+		// The function "checkSplash()" relies on this function for its Image.onload call.
+		var runSplash = function(){
+			if(!splashScreen.complete){ //check if image was already loaded by the browser
+				splashScreen.onload = runSplash;
+			}else{
+				firstRun = false;
+				var xOrigin = (viewport.width / 2) - (splashScreen.width  / 2);
+				var yOrigin = (canvasHeight   / 2) - (splashScreen.height / 2);
+				document.getElementById("canvasID").style.background = '#738079';
+				ctx.clearRect(0, 0, viewport.width, canvasHeight);
+				ctx.drawImage(splashScreen, xOrigin, yOrigin);
+				setTimeout(function(){splashSound.play()}, 500);
+				setTimeout(function(){fadeInterval = setInterval(function(){fadeCanvas();}, fadeIntervalDelay)}, fadeDelay);
+			}
+		}
+
+		
+	/************************************************************
+	* Global variables and objects used to define various bugs. *
+	*************************************************************/
+		
+		//Global variables used to pre-load bug images.
+		var lady;
+		var bee;
+		var fly;
+		var cricket;
+		
+		//Object properties for specific bug types.
+		var aLady = {
+			name:  "lady",
+			moveX: 0,
+			moveY: 2,
+			speed: 50,
+			currentX: 0,
+			currentY: 0,
+			value: 5
+		}
+		
+		var aBee = {
+			name:  "bee",
+			moveX: 10,
+			moveY: 5,
+			speed: 50,
+			currentX: 0,
+			currentY: 0,
+			value: 10
+		}
+		
+		var aFly = {
+			name:  "fly",
+			moveX: 30,
+			moveY: 10,
+			speed: 40,
+			currentX: 0,
+			currentY: 0,
+			value: 20
+		}
+		
+		var aCricket = {
+			name:  "cricket",
+			moveX: 125,
+			moveY: 20,
+			speed: 700,
+			currentX: 0,
+			currentY: 0,
+			value: 12
+		}
+		
+		/**
+		*A bug object.
+		*@param name A String indicating the type of bug.
+		*@param size An int indicating the dimensions of the image in pixels. All images are assumed to be size x size. Not used for current version.
+		*@param moveX An int indicating how far (in pixels) this bug moves on the x-plane, in a given instance.
+		*@param moveY An int indicating how far (in pixels) this bug moves on the y-plane, in a given instance.
+		*@param speed An int indicating the number of milliseconds between each bug movement.
+		*@param image An Image object who's image.src has been set to a valid image file.
+		*@param currentX An int indicating this bug's current x position.
+		*@param currentY An int indicating this bug's current y position.
+		*@param value An int indicating this bug's point value.
+		*@param dead A boolean indicating whether this bug is dead (user tapped it).
+		*@param interval This bug's setInterval() timer.
+		**/
+		function aBug(name, size, moveX, moveY, speed, image, currentX, currentY, value, dead, interval){
+			this.name  = name;
+			this.size  = size;
+			this.moveX = moveX;
+			this.moveY = moveY;
+			this.speed = speed;
+			this.value = value;
+			this.dead  = dead;
+			this.currentX = currentX;
+			this.currentY = currentY;
+			this.interval = interval;
+		}
+		
+		//A splat object used to store the location and duration of splat images (caused by bug hits).
+		function aSplat(time, currentX, currentY){
+			this.time = time;
+			this.currentX = currentX;
+			this.currentY = currentY;
+		}
+		
+		
+	/*******************************************************************
+	* Global variables and objects used to define the game properties. *
+	********************************************************************/
+	
+		var startTime = 0;  //Used to keep track of timing events.
+		var totalTime = 0;  //Used to keep the sum of elapsed times.
+		var score     = 0;  //The player's score.
+		var hitBoxMod = 10; //Number of pixels to pad the "hit" area of a bug... Noticed taps on .apk were hard to read.
+		
+		var maxBugs       = 30;    //The maximum number of bugs allowed on the canvas at any given time.
+		var numAlive      = 0;     //The number of bugs on the canvas.
+		var numBugTypes   = 4;     //The number of bug types currently supported.
+		var bugDelay      = 1500;  //The number of milliseconds before the next bug spawns.
+		var bugs          = [];    //An array of aBug objects.
+		var bugImages     = [lady, bee, fly, cricket];     //An array of bug images. Must be initialized.
+		var bugProperties = [aLady, aBee, aFly, aCricket]; //An array of bug property objects. Used to describe a bug type's behaviour.
+		var splatSounds   = [];    //An array of Audio() objects for splat sounds. Must be initialized.
+		var numSplatSnd;           //The number of splat sounds in the "splatSounds" array. Must be initialized after "splatSounds".
+		var splatTypes    = [];    //An array of splat Image() objects arranged from light to dark.
+		var splats        = [];    //An array of splat objects.
+		var numSplats     = 0;     //The number of splat objects in the "splats" array.
+		var splatFade     = 2000;  //The time in milliseconds between changing a splat's image.
+		//NOTE: maxSplatTime limits the size of the "splats" array. This value MUST be set low enough as to not allow unbounded growth of the array (See addSplat(x, y)).
+		var maxSplatTime  = 0;     //The maximum time (in milliseconds)a splat image can remain on the canvas. Must be initialized after "splatTypes".
+		var levelStartSound;       //An Audio() object used to store the mp3 that plays at the beginning of the level.
+		
+		var game;                  //The setInterval that controls the main game loop. Terminated and reset by choosing the "Reset" option in the game menu.
+		
+	/************
+	* The game. *
+	*************/
+		
+	/*********************************
+	* Game event listener functions. *
+	**********************************/
+		
+		//Get tap coordinates when canvas is tapped.
+		$(document).ready(function(){
+			$(document).bind('touchstart', '#canvasID', function(e) {
+				xTap = e.originalEvent.touches[0].pageX;
+				yTap = e.originalEvent.touches[0].pageY;
+				for(var i = 0; i < maxBugs; i++){
+				var bug = bugs[i];
+					if(bug.name != null && bug.dead == false){
+						if((xTap >= (bug.currentX-hitBoxMod) && xTap <= (bug.currentX+imgSize+hitBoxMod)) 
+								&& ((yTap - headHeight) >= (bug.currentY-hitBoxMod) && (yTap - headHeight) <= (bug.currentY+imgSize+hitBoxMod))){
+							bugHit(i);
+						}
+					}
+				}
+			});
+		});
+
+		//Listener for Restart button.
+		$(document).on("click", "#restart", function(){
+				restart();
+				$("#menu").popup('close');
+		});
+		
+		//Listener for Quit button.
+		$(document).ready(function(){
+			$("#quit").bind("click", function(){
+				navigator.app.exitApp();
+			});
+		});
+		
+		//Listener for the Resume button.
+		$(document).on("click", "#resume", function(){
+			$("#menu").popup('close');
+		});
+		
+		
+	/****************************
+	* Initialization functions. *
+	*****************************/
+		
+		//This is called by the body's "onload" event. Initializes variables, then runs the game.
+		function init(){
+			canvasInit();
+			imageInit();
+			bugInit();
+			splatInit();
+			initSounds();
+			initPlayer();
+			
+			checkSplash();  //Load the splash screen if/when warranted.
+			
+			//If the splash screen ran, delay the start of the game. Otherwise, play immediately.
+			if(firstRun){
+				setTimeout(function(){
+					levelStartSound.play();
+					run();}, totalSplashTime + 1050);
+			}else{
+				levelStartSound.play();
+				run();
+			}
+		}
+		
+		//Sets the canvas to the viewport dimensions and initializes the canvas context.
+		function canvasInit(){
+			headHeight = $('[data-role="header"]').first().outerHeight(); //Get the height of first page's header.
+			footHeight = $('[data-role="footer"]').first().outerHeight(); //Get the height of first page's footer.
+			canvasHeight = viewport.height - headHeight - footHeight;     //Set the height of the canvas.
+			document.getElementById("canvasID").setAttribute("width", viewport.width);
+			document.getElementById("canvasID").setAttribute("height", canvasHeight);
+			canvas = document.getElementById("canvasID");
+			ctx = canvas.getContext("2d");
+			ctx.clearRect(0, 0, viewport.width, canvasHeight);
+		}
+		
+		//Pre-load all images. Prevents drawing errors.
+		function imageInit(){
+			splashScreen = new Image();
+			splashScreen.src = "images/DarkHelmet_splash.png";
+		
+			//Set the various blood splat images.
+			var blood     = new Image();
+			blood.src     = "images/blood_30x30.png";
+			splatTypes[0] = blood;
+			
+			blood         = new Image();
+			blood.src     = "images/blood2_30x30.png";
+			splatTypes[1] = blood;
+			
+			blood         = new Image();
+			blood.src     = "images/blood3_30x30.png";
+			splatTypes[2] = blood;
+			
+			maxSplatTime = splatFade * splatTypes.length;
+			
+			lady     = new Image();
+			lady.src = "images/lady.png";
+			bee      = new Image();
+			bee.src  = "images/bee.png";
+			fly      = new Image();
+			fly.src  = "images/fly.png";
+			cricket  = new Image();
+			cricket.src = "images/cricket.png";
+			
+			//Reset the "bugImages" array with initialized values.
+			bugImages[0] = lady;
+			bugImages[1] = bee;
+			bugImages[2] = fly;
+			bugImages[3] = cricket;
+		}
+		
+		//Populate the bugs array with aBug objects and the intervals array with null values.
+		function bugInit(){
+			numAlive = 0;
+			for(var i = 0; i < maxBugs; i++)
+				bugs[i] = new aBug(null, 0, 0, 0, 0, null, 0, 0, 0, true, null);
+		}
+		
+		//Reset the "splats" array with expired "aSplat" objects, if the array's length is > 0.
+		function splatInit(){
+			if(splats.length > 0){
+				for(var i = 0; i < splats.length; i++)
+					splats[i] = new aSplat(0, 0, 0);
+			}
+		}
+		
+		//Populate the splatSounds array with Audio() objects to play when a bug is hit.
+		function initSounds(){
+			var sound = new Media("/android_asset/www/sounds/splat1.mp3");
+			//var sound = new Audio();
+			//sound.src = "sounds/splat1.mp3";
+			splatSounds[0] = sound;
+			
+			sound = new Media("/android_asset/www/sounds/splat2.mp3");
+			//sound = new Audio();
+			//sound.src = "sounds/splat2.mp3";
+			splatSounds[1] = sound;
+			
+			sound = new Media("/android_asset/www/sounds/splat3.mp3");
+			//sound = new Audio();
+			//sound.src = "sounds/splat3.mp3";
+			splatSounds[2] = sound;
+			
+			numSplatSnd = splatSounds.length;
+			
+			splashSound = new Media("/android_asset/www/sounds/spaceballs_surrounded.mp3");
+			//splashSound = new Audio();
+			//splashSound.src = "sounds/spaceballs_surrounded.mp3";
+			
+			levelStartSound = new Media("/android_asset/www/sounds/spaceballs_keepFiring.mp3");
+			//levelStartSound = new Audio();
+			//levelStartSound.src = "sounds/spaceballs_keepFiring.mp3";
+		}
+		
+		
+		//Initialize the player score to 0, and update the header.
+		function initPlayer(){
+			score = 0;
+			updateScore();
+		}
+		
+		
+	/***************************
+	* Splash Screen functions. *
+	****************************/
+	
+		//Check if the splash screen should be run (first run only). If so, then run the splash screen
+		// once the image has finished loading. See Splash Screen Global Variables for "runSplash".
+		function checkSplash(){
+			if(firstRun){
+				if(!splashScreen.complete)
+					splashScreen.onload = runSplash;
+				else
+					runSplash();
+			}
+		}
+		
+		//Governs the fading of the canvas background and splash screen image to black.
+		function fadeCanvas(){
+			canvasAlpha -= fadeSpeed;
+			if (canvasAlpha <= 0 || canvasAlpha >= 1){
+				clearInterval(fadeInterval);
+				removeSplash();
+			}
+			else
+				redrawSplash();
+		}
+		
+		//Redraw the splash screen with a new alpha level and background color.
+		function redrawSplash(){
+			var xOrigin = (viewport.width / 2) - (splashScreen.width  / 2);
+			var yOrigin = (canvasHeight   / 2) - (splashScreen.height / 2);
+			document.getElementById("canvasID").style.background = stepBG();
+			ctx.globalAlpha = canvasAlpha;
+			ctx.clearRect(0, 0, viewport.width, canvasHeight);
+			ctx.drawImage(splashScreen, xOrigin, yOrigin);
+		}
+		
+		/**
+		*Finds the next html color (a string representation of a hexadecimal number) for which
+		* the canvas' background will fade to.
+		*@return A String of a hexadecimal color value, preceded by the "#" symbol.
+		**/
+		function stepBG(){
+			//This arithmetic has the side-effect of converting the hexadecimal values to decimal.
+			splashBGRed   -= redStep;
+			splashBGBlue  -= blueStep;
+			splashBGGreen -= greenStep;
+			//Convert to hexadecimal, and get the String value.
+			var htmlColor = getColorString(splashBGRed, splashBGBlue, splashBGGreen);
+			return htmlColor;
+		}
+		
+		/**
+		*A helper function for stepBG(). Converts the decimal RGB colors to a hexadecimal String,
+		* preceded by the "#" symbol.
+		*@param red A decimal value for the red hue to be converted to hexadecimal.
+		*@param blue A decimal value for the blue hue to be converted to hexadecimal.
+		*@param green A decimal value for the green hue to be converted to hexadecimal.
+		*@return A String of a hexadecimal color value, preceded by the "#" symbol.
+		**/
+		function getColorString(red, blue, green){
+			var redHex = red.toString(16);
+			redHex = redHex.toUpperCase();
+			var blueHex = blue.toString(16);
+			blueHex = blueHex.toUpperCase();
+			var greenHex = green.toString(16);
+			greenHex = greenHex.toUpperCase();
+			return ("#" + redHex + blueHex + greenHex);
+		}
+		
+		//Erase the splash screen, and reset the canvas to its defaults.
+		function removeSplash(){
+			document.getElementById("canvasID").style.background = "black";
+			canvasAlpha = 1.0;
+			ctx.globalAlpha = canvasAlpha;
+			ctx.clearRect(0, 0, viewport.width, canvasHeight);
+		}
+		
+		
+	/******************
+	* Game functions. *
+	*******************/
+		
+		//The main game loop.
+		function run(){
+			game = setInterval(function(){
+				totalTime += timer(totalTime);
+				if(numAlive <= maxBugs && totalTime >= bugDelay){
+					var index = addBug();
+					if(index > -1){
+						var bug = bugs[index];
+						setTimeout(function(){bug.interval = setInterval(function(){moveBug(index);}, bug.speed)},bug.speed);
+						totalTime = 0;
+					}
+				}
+				bugEscapes();
+				render();
+			}, 4);
+		}
+		
+		//Sets the score to 0, and starts the game anew.
+		function restart(){
+			clearInterval(game);
+			stopBugs();
+			init();
+		}
+		
+		//Clears the interval of all bugs.
+		function stopBugs(){
+			for(var i = 0; i < maxBugs; i++){
+				var bug = bugs[i];
+				if(bug.interval != null)
+					clearInterval(bug.interval);
+			}
+		}
+		
+		//Sets the page's header to reflect the current player score.
+		function updateScore(){
+			document.getElementById("score").innerHTML = score;
+		}
+		
+		//Clear the canvas and re-draw all active images. Update the score.
+		function render(){
+			ctx.clearRect(0, 0, viewport.width, canvasHeight);
+			drawSplats();
+			drawBugs();
+			updateScore();
+		}
+		
+		//Traverse the "splats" array, and draw a splat image if the splat has not expired. The image type is based on "splatFade".
+		function drawSplats(){
+			var time = performance.now();
+			//Draw all splats that haven't expired.
+			for(var i = 0; i<splats.length; i++){
+				var thisSplat = splats[i];
+				var splatTime = thisSplat.time;
+				var age       = time - splatTime;
+				//If thisSplat isn't expired, draw the appropriate splat image.
+				if(age < maxSplatTime){
+					var lowerBound = 0;
+					for(var j = 0; j<splatTypes.length; j++){
+						var upperBound = ((j+1)*splatFade);
+						if(age > lowerBound && age < upperBound){
+							ctx.drawImage(splatTypes[j], thisSplat.currentX, thisSplat.currentY);
+							break;
+						}
+						lowerBound = upperBound;
+					}
+				}
+			}
+		}
+		
+		//Draw all bugs that aren't dead.
+		function drawBugs(){
+			for(var i=0; i < maxBugs; i++){
+				var bug = bugs[i];
+				if(!bug.dead){
+					var bugType = findTypeIndex(bug.name);
+					ctx.drawImage(bugImages[bugType], bug.currentX, bug.currentY);
+				}
+			}
+		}
+		
+		/**
+		*Creates a new bug, if there is an available spot in the "bugs" array, and draws it on the top of the canvas at a random x-coordinate.
+		*@return The index of the "bugs" array where the new bug was added, or -1 if a bug was not added.
+		**/
+		function addBug(){
+			var bug;
+			var bugNum   = getRandom(numBugTypes);
+			var bugIndex = -1;
+			for(var i = 0; i < maxBugs; i++){
+				bug = bugs[i];
+				if(bug.name == null || bug.dead == true){
+					var properties = bugProperties[bugNum];
+					bug.name  = properties.name;
+					bug.moveX = properties.moveX;
+					bug.moveY = properties.moveY;
+					bug.speed = properties.speed;
+					bug.value = properties.value;
+					bug.dead  = false;
+					bug.currentX = getRandom(spawnArea);
+					bug.currentY = 0;
+					numAlive++;
+					bugIndex = i;
+					break;
+				}
+			}
+			return bugIndex;
+		}
+		
+		/**
+		*Changes a bug's currentX and currentY values based on its moveX, moveY, and name.
+		*@param index The index of the "bugs" array for the bug that is to be moved.
+		**/
+		function moveBug(index){
+			var bug = bugs[index];
+			ctx.clearRect(bug.currentX, bug.currentY, imgSize, imgSize);
+			//Move bug a random distance left(negative movement) or right(positive movement), with an absolute value of bug.moveX.
+			if(bug.name != "lady" && bug.name != null){
+				var randomVal;
+				//If the bug is on the wall, move it in the opposite direction.
+				if(bug.currentX == 0)
+					randomVal = getRandom(bug.moveX);
+				else if(bug.currentX == (viewport.width - imgSize))
+					randomVal = getRandom(bug.moveX) * -1; 
+				else{
+					randomVal = getRandom(bug.moveX * 2);
+					if(randomVal > bug.moveX){
+						randomVal = bug.moveX - randomVal;
+					}
+				}
+				bug.currentX += randomVal;
+				//If the bug moves off the canvas, move it to the appropriate wall.
+				if(bug.currentX > (viewport.width - imgSize))
+					bug.currentX = viewport.width - imgSize;
+				if(bug.currentX < 0)
+					bug.currentX = 0;
+			}else
+				bug.currentX += bug.moveX;
+			bug.currentY += bug.moveY;
+		}
+		
+		//Handles the event when a user taps a live bug. Sets bug.dead = true, removes the bug from the canvas,
+		// replaces the bug with the blood image, and increments the score.
+		function bugHit(index){
+			var bug  = bugs[index];
+			bug.dead = true;
+			clearInterval(bug.interval);
+			//Clear the bug image. Image clear box increased by 1px boarder for unknown error.
+			ctx.clearRect(bug.currentX-1, bug.currentY-1, imgSize+1, imgSize+1);
+			var sound = splatSounds[getRandom(splatSounds.length)];
+			navigator.vibrate(200);
+			sound.play();
+			addSplat(bug.currentX, bug.currentY);
+			numAlive--;
+			var value = bug.value;
+			score += value;
+			updateScore();
+		}
+		
+		/**
+		*Immediately draw the splat image, and add an "aSplat" object to the "splats" array.
+		*NOTE: This implementation could be dangerous since the number of objects added to the "splats" array is unbounded.
+		* The only thing preventing this array from growing indefinitely is maxSplatTime.
+		*@param x The x-coordinate that defines the origin of the splat image.
+		*@param y The y-coordinate that defines the origin of the splat image.
+		**/
+		function addSplat(x, y){
+			ctx.drawImage(splatTypes[0], x, y);
+			var time  = performance.now();
+			var splat = new aSplat(time, x, y);
+			var allocated = false;
+			if(splats.length == 0){
+				splats.push(splat);}
+			else{
+				for(var i = 0; i<splats.length; i++){
+					var thisSplat = splats[i];
+					var thisTime  = thisSplat.time;
+					//If thisSplat is older than maxSplatTime, re-use this index for the new splat object.
+					if((time - thisTime) > maxSplatTime){
+						splats[i] = splat;
+						allocated = true;
+						break;
+					}
+				}
+				//If there are no splats in the splats array that have expired, add this splat into the next index of splats.
+				if(!allocated)
+					splats.push(splat);
+			}
+		}
+		
+		//Handles the event when a bug reaches the bottom of the canvas. Sets bug.dead = true, and removes the
+		// bug from the canvas.
+		function bugEscapes(){
+			for(var i = 0; i < maxBugs; i++){
+				var bug = bugs[i];
+				if(bug.dead == false && bug.currentY >= (canvasHeight - imgSize)){
+					clearInterval(bug.interval);
+					//Clear the bug image. Image clear box increased by 1px boarder for unknown error.
+					ctx.clearRect(bug.currentX-1, bug.currentY-1, imgSize+1, imgSize+1);
+					bug.dead = true;
+					numAlive--;
+				}
+			}
+		}
+		
+		
+	/****************************
+	* Utility/Helper functions. *
+	*****************************/
+		
+		//Returns a random number from 0 to the given "range".
+		function getRandom(range){
+			return Math.floor(Math.random() * range);
+		}
+		
+		//Helper function. Used to identify the global index of the given bug name.
+		function findTypeIndex(name){
+			switch(name){
+				case "lady": return 0;
+				case "bee" : return 1;
+				case "fly" : return 2;
+				case "cricket": return 3;
+				default: return -1;
+			}
+		}
+		
+		/**
+		*Used to measure the time since this function was last called, or since page load(if initial call).
+		*NOTE: This implementation can only be used for one function, since "startTime" is not instantiated for each function.
+		*@return A float, given in milliseconds.fractionalMillisecond format. The time since the previous call of this function, or
+		* if this function has not been called before; the time since the page loaded.
+		**/
+		function timer(){
+			var endTime = performance.now();
+			var elapsedTime = endTime - startTime;
+			startTime = performance.now();
+			return elapsedTime;
+		}
+		
+	</script>
+
+	<style type="text/css">
+		body {
+			margin: 0px;
+			padding: 0px;
+		}
+		#canvasID{
+			background: black;
+		}
+	</style>
+
+	</head>
+
+	<body onload="init()">
+
+		<div data-role="page" data-theme="a">
+			<div data-role="header" data-fullscreen="true">
+				<h1>Score: <span id="score">0</span></h1>
+			</div>
+
+			<div data-role=content>
+				<div id="canvasWrapper">
+					<canvas id="canvasID" width="300" height="300"></canvas> 
+				</div>
+				
+			</div>
+			<div data-role="footer" data-position="fixed" data-fullscreen="true" data-tap-toggle="false" data-theme="a">
+				<div data-role="navbar">
+					<ul>
+						<li><a id="menu" href="#popupMenu" data-rel="popup" data-role="button" data-inline="true" data-position-to="window">Menu</a></li>
+					</ul>
+				</div>
+			</div>
+			<div data-role="popup" data-dismissible="false" id="popupMenu" data-theme="a">
+				<ul data-role="listview" data-inset="true" style="min-width:210px;" data-theme="b">
+					<li data-role="divider" data-theme="a"><strong>Menu</strong></li>
+					<li><a id="restart" href="#" data-role="button">Restart</a></li>
+					<li><a id="quit" href="#" data-role="button">Quit</a></li>
+					<li><a id="resume" href="#" data-role="button">Close Menu</a></li>
+				</ul>
+		</div>
+		</div>
+		
+	</body>
+</html>
